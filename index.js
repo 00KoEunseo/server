@@ -62,7 +62,14 @@ io.on("connection", (socket) => {
     console.log(`🚪 방 참가: ${roomId}, 사용자: ${socket.id}, 닉네임: ${nickname}`);
   });
 
-  
+  // 반장이 주기적으로 보내는 현재 시간 업데이트 처리
+  socket.on("host_current_time_update", ({ roomId, currentTime }) => {
+    const room = rooms.get(roomId);
+    if (!room) return;
+    if (socket.id !== room.hostId) return;
+
+    room.currentTime = currentTime;
+  });
 
   // 방장의 재생 이벤트
   socket.on("video_play", ({ roomId }) => {
@@ -125,8 +132,10 @@ io.on("connection", (socket) => {
     const roomSize = room.users.size;
 
     if (room.skipCounts[direction] >= roomSize / 2) {
-      const skipSeconds = direction === "forward" ? 5 : -5;
+      // 과반수 충족 → 현재 room.currentTime 사용
+      const skipSeconds = direction === "forward" ? 10 : -10;
       room.currentTime = Math.max(room.currentTime + skipSeconds, 0);
+
       room.skipCounts = { forward: 0, backward: 0 };
       room.skipUsers.clear();
 
@@ -146,25 +155,25 @@ io.on("connection", (socket) => {
 
   // 연결 해제시 사용자 목록에서 제거 및 알림
   socket.on("disconnect", () => {
-  console.log("❌ 연결 종료:", socket.id);
-  for (const [roomId, room] of rooms) {
-    if (room.users.has(socket.id)) {
-      room.users.delete(socket.id);
+    console.log("❌ 연결 종료:", socket.id);
+    for (const [roomId, room] of rooms) {
+      if (room.users.has(socket.id)) {
+        room.users.delete(socket.id);
 
-      if (room.hostId === socket.id) {
-        // 호스트가 나간 경우 방 삭제
-        rooms.delete(roomId);
-        io.to(roomId).emit("room_closed"); // 클라이언트에 방 종료 알림
-        io.socketsLeave(roomId); // 모두 방에서 나가게 함
-        console.log(`🧹 방 삭제됨: ${roomId} (호스트 나감)`);
-      } else {
-        // 호스트가 아닌 경우 사용자 목록 업데이트만
-        io.to(roomId).emit("user_list_update", Array.from(room.users.values()));
+        if (room.hostId === socket.id) {
+          // 호스트가 나간 경우 방 삭제
+          rooms.delete(roomId);
+          io.to(roomId).emit("room_closed"); // 클라이언트에 방 종료 알림
+          io.socketsLeave(roomId); // 모두 방에서 나가게 함
+          console.log(`🧹 방 삭제됨: ${roomId} (호스트 나감)`);
+        } else {
+          // 호스트가 아닌 경우 사용자 목록 업데이트만
+          io.to(roomId).emit("user_list_update", Array.from(room.users.values()));
+        }
+        break;
       }
-      break;
     }
-  }
-});
+  });
 
   socket.on("chat_message", ({ roomId, message }) => {
     const room = rooms.get(roomId);
@@ -181,5 +190,5 @@ io.on("connection", (socket) => {
 });
 
 server.listen(4000, () => {
-  console.log("🚀 서버 실행 중: http://localhost:4000");
+  console.log("🚀 서버 실행 중!!!");
 });
