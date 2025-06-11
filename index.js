@@ -222,6 +222,28 @@ socket.on("get_room_info", ({ roomId }) => {
     }
   });
 
+    // 연결 해제시 사용자 목록에서 제거 및 알림
+  socket.on("disconnect_button", () => {
+    console.log("❌ 연결 종료 버튼:", socket.id);
+    for (const [roomId, room] of rooms) {
+      if (room.users.has(socket.id)) {
+        room.users.delete(socket.id);
+
+        if (room.hostId === socket.id) {
+          // 호스트가 나간 경우 방 삭제
+          rooms.delete(roomId);
+          io.to(roomId).emit("room_closed"); // 클라이언트에 방 종료 알림
+          io.socketsLeave(roomId); // 모두 방에서 나가게 함
+          console.log(`🧹 방 삭제됨: ${roomId} (호스트 나감)`);
+        } else {
+          // 호스트가 아닌 경우 사용자 목록 업데이트만
+          io.to(roomId).emit("user_list_update", Array.from(room.users.values()));
+        }
+        break;
+      }
+    }
+  });
+
   socket.on("chat_message", ({ roomId, message }) => {
     const room = rooms.get(roomId);
     if (!room) return;
