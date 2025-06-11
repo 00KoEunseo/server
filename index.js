@@ -29,6 +29,8 @@ socket.on("create_room", ({ roomId, videoId, password }) => {
     skipUsers: new Set(),
     users: new Map(), // ❌ join_room 이전에는 등록하지 않음
     password: password || null, // 비밀번호 저장 (없으면 null)
+    boreVotes: new Set(),
+    recommendQueue: [] //추천영상목록 큐
   });
 
   socket.join(roomId);
@@ -67,6 +69,7 @@ socket.on("create_room", ({ roomId, videoId, password }) => {
       usersCount: room.users.size,
       userList: Array.from(room.users.values()),
       isLocked: !!room.password, // 잠금 여부 정보 전달
+      recommendQueue: room.recommendQueue
     });
 
     io.to(roomId).emit("user_list_update", Array.from(room.users.values()));
@@ -152,19 +155,128 @@ socket.on("get_room_info", ({ roomId }) => {
 
     room.videoId = newVideoId;
     room.currentTime = 0;
-    room.isPlaying = false;
+    room.isPlaying = true;
     room.skipCounts = { forward: 0, backward: 0 };
     room.skipUsers.clear();
 
     io.to(roomId).emit("video_changed", {
       videoId: newVideoId,
       currentTime: 0,
-      isPlaying: false,
+      isPlaying: true,
       skipCounts: room.skipCounts,
     });
 
     console.log(`🎬 방 ${roomId} 영상 변경: ${newVideoId} by ${socket.id}`);
   });
+
+  //추천영상 등록 이벤트
+  socket.on("add_recommend_video", ({ roomId, videoId }) => {
+  const room = rooms.get(roomId);
+  if (!room) return;
+
+  const wasQueueEmpty = room.recommendQueue.length === 0;
+  room.recommendQueue.push(videoId);
+
+  io.to(roomId).emit("recommend_queue_updated", room.recommendQueue);
+  console.log(`🎞 추천영상 추가됨: ${videoId} (방: ${roomId})`);
+
+  // 만약 큐가 비어있었고, 현재 영상이 끝난 상태(isPlaying === false)라면
+  // 추천영상으로 자동 전환 처리 (방장만 진행)
+  /*if (wasQueueEmpty && room.isPlaying === false) {
+    const hostSocket = io.sockets.sockets.get(room.hostId);
+    if (hostSocket) {
+      const nextVideoId = room.recommendQueue.shift();
+      room.videoId = nextVideoId;
+      room.currentTime = 0;
+      room.isPlaying = true;
+
+      io.to(roomId).emit("video_changed", {
+        videoId: nextVideoId,
+        currentTime: 0,
+        isPlaying: true,
+        skipCounts: { forward: 0, backward: 0 },
+      });
+
+      io.to(roomId).emit("recommend_queue_updated", room.recommendQueue);
+      console.log(`▶ 추천영상 자동 재생 (큐 추가 시): ${nextVideoId} (방: ${roomId})`);
+    }
+  }*/
+});
+
+  // 추천영상 자동재생 이벤트 (영상 종료 시)
+socket.on("video_ended", ({ roomId }) => {
+  const room = rooms.get(roomId);
+  if (!room) return;
+
+  const isHost = socket.id === room.hostId;
+  if (!isHost) return; // 호스트만 처리
+
+  if (room.recommendQueue.length > 0) {
+    const nextVideoId = room.recommendQueue.shift();
+
+    room.videoId = nextVideoId;
+    room.currentTime = 0;
+    room.isPlaying = true;
+
+    io.to(roomId).emit("video_changed", {
+      videoId: nextVideoId,
+      currentTime: 0,
+      isPlaying: true,
+      skipCounts: { forward: 0, backward: 0 },
+    });
+
+    io.to(roomId).emit("recommend_queue_updated", room.recommendQueue);
+    console.log(`▶ 추천영상 자동 재생 (영상 종료 시): ${nextVideoId} (방: ${roomId})`);
+  } else {
+    // 추천영상 없으면 재생 멈춤 상태로 변경
+    room.isPlaying = false;
+    console.log(`▶ 추천영상 없음. 재생 멈춤 (방: ${roomId})`);
+  }
+});
+
+//영상지루해 스킵! 이벤트
+socket.on("bore_vote", ({ roomId }) => {
+  const room = rooms.get(roomId);
+  if (!room) return;
+
+  if (room.boreVotes.has(socket.id)) return; // 이미 투표함
+
+  room.boreVotes.add(socket.id);
+
+  // 모든 클라이언트에 투표 수 전송
+  io.to(roomId).emit("bore_vote_update", room.boreVotes.size);
+
+  // 과반수 체크
+  const totalUsers = room.users.size;
+  if (room.boreVotes.size > totalUsers / 2) {
+    // 과반수 달성: 다음 추천영상 재생
+    if (room.recommendQueue.length > 0) {
+      const nextVideoId = room.recommendQueue.shift();
+
+      room.videoId = nextVideoId;
+      room.currentTime = 0;
+      room.isPlaying = true;
+
+      io.to(roomId).emit("video_changed", {
+        videoId: nextVideoId,
+        currentTime: 0,
+        isPlaying: true,
+        skipCounts: { forward: 0, backward: 0 },
+      });
+
+      io.to(roomId).emit("recommend_queue_updated", room.recommendQueue);
+      console.log(`▶ 노잼 과반수 재생: ${nextVideoId} (방: ${roomId})`);
+    } else {
+      room.isPlaying = false;
+    }
+
+    // 투표 초기화
+    room.boreVotes.clear();
+
+    // 투표 수 초기화 방송 (0으로)
+    io.to(roomId).emit("bore_vote_update", 0);
+  }
+});
 
   // 스킵 요청 이벤트 (forward/backward)
   socket.on("skip_request", ({ roomId, direction }) => {
