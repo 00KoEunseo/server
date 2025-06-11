@@ -19,28 +19,39 @@ io.on("connection", (socket) => {
   console.log("✅ 연결됨:", socket.id);
 
   // 방 생성
-  socket.on("create_room", ({ roomId, videoId, nickname }) => {
-    rooms.set(roomId, {
-      hostId: socket.id,
-      videoId,
-      currentTime: 0,
-      isPlaying: false,
-      skipCounts: { forward: 0, backward: 0 },
-      skipUsers: new Set(),
-      users: new Map([[socket.id, nickname]]),
-    });
-    socket.join(roomId);
-    socket.emit("room_created", { roomId });
-    io.to(roomId).emit("user_list_update", Array.from(rooms.get(roomId).users.values()));
-    console.log(`🛠️ 방 생성됨: ${roomId}, 방장: ${socket.id}, 닉네임: ${nickname}`);
+socket.on("create_room", ({ roomId, videoId, password }) => {
+  rooms.set(roomId, {
+    hostId: socket.id,
+    videoId,
+    currentTime: 0,
+    isPlaying: false,
+    skipCounts: { forward: 0, backward: 0 },
+    skipUsers: new Set(),
+    users: new Map(), // ❌ join_room 이전에는 등록하지 않음
+    password: password || null, // 비밀번호 저장 (없으면 null)
   });
 
+  socket.join(roomId);
+  socket.emit("room_created", { roomId });
+
+  console.log(`🛠️ 방 생성됨: ${roomId}, 방장: ${socket.id}, 잠금: ${password ? "예" : "아니오"}`);
+});
+
+
   // 방 참가
-  socket.on("join_room", ({ roomId, nickname }) => {
+  socket.on("join_room", ({ roomId, nickname, password }) => {
     const room = rooms.get(roomId);
     if (!room) {
       socket.emit("error", { message: "존재하지 않는 방입니다." });
       return;
+    }
+
+    // 호스트는 비밀번호 검사 안함
+    if (socket.id !== room.hostId && room.password) {
+      if (password !== room.password) {
+        socket.emit("error", { message: "비밀번호가 틀렸습니다." });
+        return;
+      }
     }
 
     socket.join(roomId);
@@ -55,11 +66,47 @@ io.on("connection", (socket) => {
       skipCounts: room.skipCounts,
       usersCount: room.users.size,
       userList: Array.from(room.users.values()),
+      isLocked: !!room.password, // 잠금 여부 정보 전달
     });
 
     io.to(roomId).emit("user_list_update", Array.from(room.users.values()));
 
     console.log(`🚪 방 참가: ${roomId}, 사용자: ${socket.id}, 닉네임: ${nickname}`);
+  });
+
+// 방 기본 정보 요청
+socket.on("get_room_info", ({ roomId }) => {
+  const room = rooms.get(roomId);
+  if (!room) {
+    socket.emit("error", { message: "존재하지 않는 방입니다." });
+    return;
+  }
+
+  socket.emit("room_info", {
+    isLocked: !!room.password,
+  });
+});
+
+  //방목록
+ socket.on("get_room_list", ({ page = 1 }) => {
+    const pageSize = 10;
+    const roomEntries = Array.from(rooms.entries()).reverse();
+
+    const paginated = roomEntries.slice((page - 1) * pageSize, page * pageSize);
+
+    const roomList = paginated.map(([roomId, room]) => {
+      const hostNickname = room.users.get(room.hostId) || "알 수 없음";
+      return {
+        roomId,
+        displayName: `${hostNickname} : ${roomId}`,
+        isLocked: !!room.password,
+      };
+    });
+
+    socket.emit("room_list", {
+      rooms: roomList,
+      hasNextPage: page * pageSize < rooms.size,
+    });
   });
 
   // 반장이 주기적으로 보내는 현재 시간 업데이트 처리
