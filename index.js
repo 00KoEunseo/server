@@ -240,6 +240,11 @@ socket.on("video_ended", ({ roomId }) => {
   io.to(roomId).emit("bore_vote_update", 0);
 });
 
+socket.on("ping", () => {
+  // 간단하게 로그만 찍거나 무시해도 됩니다
+  console.log("Ping received from", socket.id);
+});
+
 //영상지루해 스킵! 이벤트
 socket.on("bore_vote", ({ roomId }) => {
   const room = rooms.get(roomId);
