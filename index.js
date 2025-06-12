@@ -241,8 +241,8 @@ socket.on("video_ended", ({ roomId }) => {
 });
 
 socket.on("ping", () => {
-  // 간단하게 로그만 찍거나 무시해도 됩니다
-  console.log("Ping received from", socket.id);
+  //console.log("Ping received from", socket.id);
+  socket.emit("pong"); // 클라이언트에게 pong 전송
 });
 
 //영상지루해 스킵! 이벤트
