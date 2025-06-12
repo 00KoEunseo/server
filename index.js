@@ -232,6 +232,12 @@ socket.on("video_ended", ({ roomId }) => {
     room.isPlaying = false;
     console.log(`▶ 추천영상 없음. 재생 멈춤 (방: ${roomId})`);
   }
+
+      // 투표 초기화
+  room.boreVotes.clear();
+
+    // 투표 수 초기화 방송 (0으로)
+  io.to(roomId).emit("bore_vote_update", 0);
 });
 
 //영상지루해 스킵! 이벤트
