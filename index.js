@@ -166,6 +166,12 @@ socket.on("get_room_info", ({ roomId }) => {
       skipCounts: room.skipCounts,
     });
 
+            // 투표 초기화
+    room.boreVotes.clear();
+
+      // 투표 수 초기화 방송 (0으로)
+    io.to(roomId).emit("bore_vote_update", 0);
+
     console.log(`🎬 방 ${roomId} 영상 변경: ${newVideoId} by ${socket.id}`);
   });
 
